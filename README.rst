@@ -51,6 +51,16 @@ Basic usage
 	False
 	>>> print(hash - otherhash)
 	36
+    >>> for r in range(1, 30, 5):
+    ...     rothash = imagehash.average_hash(Image.open('test.png').rotate(r))
+    ...     print('Rotation by %d: %d Hamming difference' % (r, hash - rothash))
+    ...
+    Rotation by 1: 2 Hamming difference
+    Rotation by 6: 11 Hamming difference
+    Rotation by 11: 13 Hamming difference
+    Rotation by 16: 17 Hamming difference
+    Rotation by 21: 19 Hamming difference
+    Rotation by 26: 21 Hamming difference
 
 Each algorithm can also have its hash size adjusted (or in the case of
 colorhash, its :code:`binbits`). Increasing the hash size allows an
