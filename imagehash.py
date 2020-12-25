@@ -120,6 +120,9 @@ class ImageHash:
         # Returns the bit length of the hash
         return self.hash.size
 
+    def isometric(self):
+        return get_isometric_dct_transforms(self.hash)
+
 
 def hex_to_hash(hexstr):
     """
@@ -243,6 +246,34 @@ def phash_simple(image, hash_size=8, highfreq_factor=4):
     avg = dctlowfreq.mean()
     diff = dctlowfreq > avg
     return ImageHash(diff)
+
+
+def get_isometric_dct_transforms(dct: np.ndarray):
+    """Convert a DCT into its rotational equivalents.
+
+    Rotates a hash without needing to re-evaluate the image for each rotation"""
+    # From https://github.com/thorn-oss/perception/blob/09086f368742e6135cd5eb8497c9f7a59eaa7f0b/perception/hashers/tools.py#L294
+    # pylint: disable=invalid-name
+    T1 = np.empty_like(dct)
+    T1[::2] = 1
+    T1[1::2] = -1
+
+    # pylint: disable=invalid-name
+    T2 = np.empty_like(dct)
+    T2[::2, ::2] = 1
+    T2[1::2, 1::2] = 1
+    T2[::2, 1::2] = -1
+    T2[1::2, ::2] = -1
+    return dict(
+        r0=dct,
+        fv=dct * T1,
+        fh=dct * T1.T,
+        r180=dct * T2,
+        r90=dct.T * T1,
+        r90fv=dct.T,
+        r90fh=dct.T * T2,
+        r270=dct.T * T1.T,
+    )
 
 
 def dhash(image, hash_size=8):
