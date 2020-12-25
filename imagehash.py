@@ -10,99 +10,102 @@ class ImageHash:
     Hash encapsulation. Can be used for dictionary keys and comparisons.
     """
 
-    def __init__(self, binary_array, restore=False):
-        self.hash = binary_array
+    def __init__(self, binary_array=None, dct=None, hashfn=None, restore=None):
+        self.precomputedHash = binary_array
+
+        # For creating DCT rotations, we need to store the DCT directly along with
+        # how we transform the DCT to get the final hash value (hashfn(dct)):
+        self.dct = dct
+        self.hashfn = hashfn
+
+        if isinstance(self.hash, np.ndarray):
+            # convert boolean tensors into binary
+            self.precomputedHash = self.hash.astype(int)
 
         if restore:
-            self.hash = np.frombuffer(base64.b85decode(self.hash), dtype=np.uint8)
+            # we can restore via hex hashes or more compact b85 representations
+            if restore == "hex":
+                asint = int(self.hash, 16)
+                bits = asint.bit_length()
+
+                # Note: no fractional bytes here, so we don't need to do the (+ 7) ceiling trick
+                self.precomputedHash = np.unpackbits(
+                    np.frombuffer(
+                        asint.to_bytes(bits // 8, "big"),
+                        dtype=np.uint8,
+                    )
+                )
+            elif restore == "b85":
+                # else, restoring from base-85 save()
+                self.precomputedHash = np.unpackbits(
+                    np.frombuffer(base64.b85decode(self.hash), dtype=np.uint8)
+                )
+            else:
+                raise Exception("Unknown restore type requested? Try 'hex' or 'b85'")
+
+            # restore original rows/cols (all hashes are square)
+            rowscols = int(np.sqrt(self.precomputedHash.size))
+            self.precomputedHash = self.hash.reshape(rowscols, rowscols)
+
+    @property
+    def hash(self):
+        if self.precomputedHash is not None:
+            return self.precomputedHash
+
+        """ Perform the DCT hash using requested exclusion criteria """
+        self.precomputedHash = self.hashfn(self.dct)
+        return self.precomputedHash
 
     def __str__(self):
-        return base64.b85encode(np.packbits(self.hash)).lower()
+        # convert base hash to bytes, convert bytes to integer,
+        # convert integer to lower case hex string:
+        return f"{int.from_bytes(np.packbits(self.precomputedHash), 'big'):x}"
+
+    def save(self):
+        # Note: this ONLY works if each hash array element is a binary value.
+        #       Does not save/restore any values *not* 0 or 1
+        return base64.b85encode(np.packbits(self.hash))
 
     def __repr__(self):
         return repr(self.hash)
 
     def __sub__(self, other):
         if other is None:
-            raise TypeError("Other hash must not be None.")
+            raise TypeError("Other hash must not be None")
+
         if self.hash.size != other.hash.size:
             raise TypeError(
-                "ImageHashes must be of the same shape.",
+                "ImageHashes must be of the same shape",
                 self.hash.shape,
                 other.hash.shape,
             )
-        return np.count_nonzero(self.hash.flatten() != other.hash.flatten())
+        return np.count_nonzero(self.hash - other.hash)
 
     def __eq__(self, other):
         if other is None:
             return False
-        return np.array_equal(self.hash.flatten(), other.hash.flatten())
+
+        return np.array_equal(self.hash, other.hash)
 
     def __ne__(self, other):
         if other is None:
             return False
-        return not np.array_equal(self.hash.flatten(), other.hash.flatten())
+
+        return not self == other
 
     def __hash__(self):
-        # this returns a 8 bit integer, intentionally shortening the information
-        return sum([2 ** (i % 8) for i, v in enumerate(self.hash.flatten()) if v])
+        # giant number as hash
+        return int.from_bytes(np.packbits(self.hash), "big")
 
     def __len__(self):
         # Returns the bit length of the hash
         return self.hash.size
 
     def isometric(self):
-        return get_isometric_dct_transforms(self.hash)
-
-
-def hex_to_hash(hexstr):
-    """
-    Convert a stored hash (hex, as retrieved from str(Imagehash))
-    back to a Imagehash object.
-
-    Notes:
-    1. This algorithm assumes all hashes are either
-       bidimensional arrays with dimensions hash_size * hash_size,
-       or onedimensional arrays with dimensions binbits * 14.
-    2. This algorithm does not work for hash_size < 2.
-    """
-    hash_size = int(np.sqrt(len(hexstr) * 4))
-    # assert hash_size == np.sqrt(len(hexstr)*4)
-    binary_array = "{:0>{width}b}".format(int(hexstr, 16), width=hash_size * hash_size)
-    bit_rows = [
-        binary_array[i : i + hash_size] for i in range(0, len(binary_array), hash_size)
-    ]
-    hash_array = np.array([[bool(int(d)) for d in row] for row in bit_rows])
-    return ImageHash(hash_array)
-
-
-def hex_to_flathash(hexstr, hashsize):
-    hash_size = int(len(hexstr) * 4 / (hashsize))
-    binary_array = "{:0>{width}b}".format(int(hexstr, 16), width=hash_size * hashsize)
-    hash_array = np.array([[bool(int(d)) for d in binary_array]])[
-        -hash_size * hashsize :
-    ]
-    return ImageHash(hash_array)
-
-
-def old_hex_to_hash(hexstr, hash_size=8):
-    """
-    Convert a stored hash (hex, as retrieved from str(Imagehash))
-    back to a Imagehash object. This method should be used for
-    hashes generated by ImageHash up to version 3.7. For hashes
-    generated by newer versions of ImageHash, hex_to_hash should
-    be used instead.
-    """
-    l = []
-    count = hash_size * (hash_size // 4)
-    if len(hexstr) != count:
-        emsg = "Expected hex string size of {}."
-        raise ValueError(emsg.format(count))
-    for i in range(count // 2):
-        h = hexstr[i * 2 : i * 2 + 2]
-        v = int("0x" + h, 16)
-        l.append([v & 2 ** i > 0 for i in range(8)])
-    return ImageHash(np.array(l))
+        return {
+            k: self.hashfn(dct).astype(int)
+            for k, dct in get_isometric_dct_transforms(self.dct).items()
+        }
 
 
 def average_hash(image, hash_size=8, mean=np.mean):
@@ -152,10 +155,18 @@ def phash(image, hash_size=8, highfreq_factor=4, blur=True):
     image = image.convert("L").resize((img_size, img_size), Image.ANTIALIAS)
     pixels = np.asarray(image)
     dct = scipy.fftpack.dct(scipy.fftpack.dct(pixels, axis=0), axis=1)
+
+    # Note: 'perception' lib also supports frequency shifting the hash by not starting from
+    #       the start, but by starting from an offset. Not sure how much it improves results:
+    #       dct[self.freq_shift : self.hash_size + self.freq_shift,
+    #           self.freq_shift : self.hash_size + self.freq_shift]
     dctlowfreq = dct[:hash_size, :hash_size]
-    med = np.median(dctlowfreq)
-    diff = dctlowfreq > med
-    return ImageHash(diff)
+
+    # hashfn:
+    # med = np.median(dctlowfreq)
+    # diff = dctlowfreq > med
+
+    return ImageHash(dct=dctlowfreq, hashfn=lambda x: x > np.median(x))
 
 
 def phash_simple(image, hash_size=8, highfreq_factor=4, blur=True):
@@ -176,9 +187,12 @@ def phash_simple(image, hash_size=8, highfreq_factor=4, blur=True):
     pixels = np.asarray(image)
     dct = scipy.fftpack.dct(pixels)
     dctlowfreq = dct[:hash_size, 1 : hash_size + 1]
-    avg = dctlowfreq.mean()
-    diff = dctlowfreq > avg
-    return ImageHash(diff)
+
+    # hashfn:
+    # avg = dctlowfreq.mean()
+    # diff = dctlowfreq > avg
+
+    return ImageHash(dct=dctlowfreq, hashfn=lambda x: x > x.mean())
 
 
 def get_isometric_dct_transforms(dct: np.ndarray):
@@ -292,10 +306,11 @@ def whash(image, hash_size=8, image_scale=None, mode="haar", remove_max_haar_ll=
     coeffs = pywt.wavedec2(pixels, mode, level=dwt_level)
     dwt_low = coeffs[0]
 
+    # hashfn:
     # Substract median and compute hash
-    med = np.median(dwt_low)
-    diff = dwt_low > med
-    return ImageHash(diff)
+    # med = np.median(dwt_low)
+    # diff = dwt_low > med
+    return ImageHash(dct=dwt_low, hashfn=lambda x: x > np.median(x))
 
 
 def colorhash(image, binbits=3):
