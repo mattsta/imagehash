@@ -32,7 +32,7 @@ Rotation by 26: 21 Hamming difference
 from __future__ import absolute_import, division, print_function
 
 from PIL import Image, ImageFilter
-import numpy
+import numpy as np
 import base64
 
 # import scipy.fftpack
@@ -83,10 +83,10 @@ class ImageHash:
         self.hash = binary_array
 
         if restore:
-            self.hash = numpy.frombuffer(base64.b85decode(self.hash), dtype=numpy.uint8)
+            self.hash = np.frombuffer(base64.b85decode(self.hash), dtype=np.uint8)
 
     def __str__(self):
-        return base64.b85encode(numpy.packbits(self.hash)).lower()
+        return base64.b85encode(np.packbits(self.hash)).lower()
 
     def __repr__(self):
         return repr(self.hash)
@@ -100,17 +100,17 @@ class ImageHash:
                 self.hash.shape,
                 other.hash.shape,
             )
-        return numpy.count_nonzero(self.hash.flatten() != other.hash.flatten())
+        return np.count_nonzero(self.hash.flatten() != other.hash.flatten())
 
     def __eq__(self, other):
         if other is None:
             return False
-        return numpy.array_equal(self.hash.flatten(), other.hash.flatten())
+        return np.array_equal(self.hash.flatten(), other.hash.flatten())
 
     def __ne__(self, other):
         if other is None:
             return False
-        return not numpy.array_equal(self.hash.flatten(), other.hash.flatten())
+        return not np.array_equal(self.hash.flatten(), other.hash.flatten())
 
     def __hash__(self):
         # this returns a 8 bit integer, intentionally shortening the information
@@ -135,20 +135,20 @@ def hex_to_hash(hexstr):
        or onedimensional arrays with dimensions binbits * 14.
     2. This algorithm does not work for hash_size < 2.
     """
-    hash_size = int(numpy.sqrt(len(hexstr) * 4))
-    # assert hash_size == numpy.sqrt(len(hexstr)*4)
+    hash_size = int(np.sqrt(len(hexstr) * 4))
+    # assert hash_size == np.sqrt(len(hexstr)*4)
     binary_array = "{:0>{width}b}".format(int(hexstr, 16), width=hash_size * hash_size)
     bit_rows = [
         binary_array[i : i + hash_size] for i in range(0, len(binary_array), hash_size)
     ]
-    hash_array = numpy.array([[bool(int(d)) for d in row] for row in bit_rows])
+    hash_array = np.array([[bool(int(d)) for d in row] for row in bit_rows])
     return ImageHash(hash_array)
 
 
 def hex_to_flathash(hexstr, hashsize):
     hash_size = int(len(hexstr) * 4 / (hashsize))
     binary_array = "{:0>{width}b}".format(int(hexstr, 16), width=hash_size * hashsize)
-    hash_array = numpy.array([[bool(int(d)) for d in binary_array]])[
+    hash_array = np.array([[bool(int(d)) for d in binary_array]])[
         -hash_size * hashsize :
     ]
     return ImageHash(hash_array)
@@ -171,10 +171,10 @@ def old_hex_to_hash(hexstr, hash_size=8):
         h = hexstr[i * 2 : i * 2 + 2]
         v = int("0x" + h, 16)
         l.append([v & 2 ** i > 0 for i in range(8)])
-    return ImageHash(numpy.array(l))
+    return ImageHash(np.array(l))
 
 
-def average_hash(image, hash_size=8, mean=numpy.mean):
+def average_hash(image, hash_size=8, mean=np.mean):
     """
     Average Hash computation
 
@@ -183,7 +183,7 @@ def average_hash(image, hash_size=8, mean=numpy.mean):
     Step by step explanation: https://web.archive.org/web/20171112054354/https://www.safaribooksonline.com/blog/2013/11/26/image-hashing-with-python/
 
     @image must be a PIL instance.
-    @mean how to determine the average luminescence. can try numpy.median instead.
+    @mean how to determine the average luminescence. can try np.median instead.
     """
     if hash_size < 2:
         raise ValueError("Hash size must be greater than or equal to 2")
@@ -192,7 +192,7 @@ def average_hash(image, hash_size=8, mean=numpy.mean):
     image = image.convert("L").resize((hash_size, hash_size), Image.ANTIALIAS)
 
     # find average pixel value; 'pixels' is an array of the pixel values, ranging from 0 (black) to 255 (white)
-    pixels = numpy.asarray(image)
+    pixels = np.asarray(image)
     avg = mean(pixels)
 
     # create string of bits
@@ -219,10 +219,10 @@ def phash(image, hash_size=8, highfreq_factor=4, blur=True):
         image = image.filter(ImageFilter.BoxBlur(3))  # a 7x7 blur (radius 3)
 
     image = image.convert("L").resize((img_size, img_size), Image.ANTIALIAS)
-    pixels = numpy.asarray(image)
+    pixels = np.asarray(image)
     dct = scipy.fftpack.dct(scipy.fftpack.dct(pixels, axis=0), axis=1)
     dctlowfreq = dct[:hash_size, :hash_size]
-    med = numpy.median(dctlowfreq)
+    med = np.median(dctlowfreq)
     diff = dctlowfreq > med
     return ImageHash(diff)
 
@@ -242,7 +242,7 @@ def phash_simple(image, hash_size=8, highfreq_factor=4, blur=True):
         image = image.filter(ImageFilter.BoxBlur(3))  # a 7x7 blur (radius 3)
 
     image = image.convert("L").resize((img_size, img_size), Image.ANTIALIAS)
-    pixels = numpy.asarray(image)
+    pixels = np.asarray(image)
     dct = scipy.fftpack.dct(pixels)
     dctlowfreq = dct[:hash_size, 1 : hash_size + 1]
     avg = dctlowfreq.mean()
@@ -288,12 +288,12 @@ def dhash(image, hash_size=8):
 
     @image must be a PIL instance.
     """
-    # resize(w, h), but numpy.array((h, w))
+    # resize(w, h), but np.array((h, w))
     if hash_size < 2:
         raise ValueError("Hash size must be greater than or equal to 2")
 
     image = image.convert("L").resize((hash_size + 1, hash_size), Image.ANTIALIAS)
-    pixels = numpy.asarray(image)
+    pixels = np.asarray(image)
     # compute differences between columns
     diff = pixels[:, 1:] > pixels[:, :-1]
     return ImageHash(diff)
@@ -309,9 +309,9 @@ def dhash_vertical(image, hash_size=8):
 
     @image must be a PIL instance.
     """
-    # resize(w, h), but numpy.array((h, w))
+    # resize(w, h), but np.array((h, w))
     image = image.convert("L").resize((hash_size, hash_size + 1), Image.ANTIALIAS)
-    pixels = numpy.asarray(image)
+    pixels = np.asarray(image)
     # compute differences between rows
     diff = pixels[1:, :] > pixels[:-1, :]
     return ImageHash(diff)
@@ -337,18 +337,18 @@ def whash(image, hash_size=8, image_scale=None, mode="haar", remove_max_haar_ll=
     if image_scale is not None:
         assert image_scale & (image_scale - 1) == 0, "image_scale is not power of 2"
     else:
-        image_natural_scale = 2 ** int(numpy.log2(min(image.size)))
+        image_natural_scale = 2 ** int(np.log2(min(image.size)))
         image_scale = max(image_natural_scale, hash_size)
 
-    ll_max_level = int(numpy.log2(image_scale))
+    ll_max_level = int(np.log2(image_scale))
 
-    level = int(numpy.log2(hash_size))
+    level = int(np.log2(hash_size))
     assert hash_size & (hash_size - 1) == 0, "hash_size is not power of 2"
     assert level <= ll_max_level, "hash_size in a wrong range"
     dwt_level = ll_max_level - level
 
     image = image.convert("L").resize((image_scale, image_scale), Image.ANTIALIAS)
-    pixels = numpy.asarray(image) / 255.0
+    pixels = np.asarray(image) / 255.0
 
     # Remove low level frequency LL(max_ll) if @remove_max_haar_ll using haar filter
     if remove_max_haar_ll:
@@ -362,7 +362,7 @@ def whash(image, hash_size=8, image_scale=None, mode="haar", remove_max_haar_ll=
     dwt_low = coeffs[0]
 
     # Substract median and compute hash
-    med = numpy.median(dwt_low)
+    med = np.median(dwt_low)
     diff = dwt_low > med
     return ImageHash(diff)
 
@@ -382,30 +382,30 @@ def colorhash(image, binbits=3):
     """
 
     # bin in hsv space:
-    intensity = numpy.asarray(image.convert("L")).flatten()
-    h, s, v = [numpy.asarray(v).flatten() for v in image.convert("HSV").split()]
+    intensity = np.asarray(image.convert("L")).flatten()
+    h, s, v = [np.asarray(v).flatten() for v in image.convert("HSV").split()]
     # black bin
     mask_black = intensity < 256 // 8
     frac_black = mask_black.mean()
     # gray bin (low saturation, but not black)
     mask_gray = s < 256 // 3
-    frac_gray = numpy.logical_and(~mask_black, mask_gray).mean()
+    frac_gray = np.logical_and(~mask_black, mask_gray).mean()
     # two color bins (medium and high saturation, not in the two above)
-    mask_colors = numpy.logical_and(~mask_black, ~mask_gray)
-    mask_faint_colors = numpy.logical_and(mask_colors, s < 256 * 2 // 3)
-    mask_bright_colors = numpy.logical_and(mask_colors, s > 256 * 2 // 3)
+    mask_colors = np.logical_and(~mask_black, ~mask_gray)
+    mask_faint_colors = np.logical_and(mask_colors, s < 256 * 2 // 3)
+    mask_bright_colors = np.logical_and(mask_colors, s > 256 * 2 // 3)
 
     c = max(1, mask_colors.sum())
     # in the color bins, make sub-bins by hue
-    hue_bins = numpy.linspace(0, 255, 6 + 1)
+    hue_bins = np.linspace(0, 255, 6 + 1)
     if mask_faint_colors.any():
-        h_faint_counts, _ = numpy.histogram(h[mask_faint_colors], bins=hue_bins)
+        h_faint_counts, _ = np.histogram(h[mask_faint_colors], bins=hue_bins)
     else:
-        h_faint_counts = numpy.zeros(len(hue_bins) - 1)
+        h_faint_counts = np.zeros(len(hue_bins) - 1)
     if mask_bright_colors.any():
-        h_bright_counts, _ = numpy.histogram(h[mask_bright_colors], bins=hue_bins)
+        h_bright_counts, _ = np.histogram(h[mask_bright_colors], bins=hue_bins)
     else:
-        h_bright_counts = numpy.zeros(len(hue_bins) - 1)
+        h_bright_counts = np.zeros(len(hue_bins) - 1)
 
     # now we have fractions in each category (6*2 + 2 = 14 bins)
     # convert to hash and discretize:
@@ -423,7 +423,7 @@ def colorhash(image, binbits=3):
             v // (2 ** (binbits - i - 1)) % 2 ** (binbits - i) > 0
             for i in range(binbits)
         ]
-    return ImageHash(numpy.asarray(bitarray).reshape((-1, binbits)))
+    return ImageHash(np.asarray(bitarray).reshape((-1, binbits)))
 
 
 class ImageMultiHash:
@@ -531,14 +531,14 @@ class ImageMultiHash:
 def _find_region(remaining_pixels, segmented_pixels):
     """
     Finds a region and returns a set of pixel coordinates for it.
-    :param remaining_pixels: A numpy bool array, with True meaning the pixels are remaining to segment
+    :param remaining_pixels: A np bool array, with True meaning the pixels are remaining to segment
     :param segmented_pixels: A set of pixel coordinates which have already been assigned to segment. This will be
     updated with the new pixels added to the returned segment.
     """
     in_region = set()
     not_in_region = set()
     # Find the first pixel in remaining_pixels with a value of True
-    available_pixels = numpy.transpose(numpy.nonzero(remaining_pixels))
+    available_pixels = np.transpose(np.nonzero(remaining_pixels))
     start = tuple(available_pixels[0])
     in_region.add(start)
     new_pixels = in_region.copy()
@@ -573,14 +573,14 @@ def _find_all_segments(pixels, segment_threshold, min_segment_size):
 
     Note: Slightly different segmentations are produced when using pillow version 6 vs. >=7, due to a change in
     rounding in the greyscale conversion.
-    :param pixels: A numpy array of the pixel brightnesses.
+    :param pixels: A np array of the pixel brightnesses.
     :param segment_threshold: The brightness threshold to use when differentiating between hills and valleys.
     :param min_segment_size: The minimum number of pixels for a segment.
     """
     img_width, img_height = pixels.shape
     # threshold pixels
     threshold_pixels = pixels > segment_threshold
-    unassigned_pixels = numpy.full(pixels.shape, True, dtype=numpy.bool)
+    unassigned_pixels = np.full(pixels.shape, True, dtype=np.bool)
 
     segments = []
     already_segmented = set()
@@ -592,8 +592,8 @@ def _find_all_segments(pixels, segment_threshold, min_segment_size):
     already_segmented.update([(z, img_height) for z in range(img_width)])
 
     # Find all the "hill" regions
-    while numpy.bitwise_and(threshold_pixels, unassigned_pixels).any():
-        remaining_pixels = numpy.bitwise_and(threshold_pixels, unassigned_pixels)
+    while np.bitwise_and(threshold_pixels, unassigned_pixels).any():
+        remaining_pixels = np.bitwise_and(threshold_pixels, unassigned_pixels)
         segment = _find_region(remaining_pixels, already_segmented)
         # Apply segment
         if len(segment) > min_segment_size:
@@ -602,9 +602,9 @@ def _find_all_segments(pixels, segment_threshold, min_segment_size):
             unassigned_pixels[pix] = False
 
     # Invert the threshold matrix, and find "valleys"
-    threshold_pixels_i = numpy.invert(threshold_pixels)
+    threshold_pixels_i = np.invert(threshold_pixels)
     while len(already_segmented) < img_width * img_height:
-        remaining_pixels = numpy.bitwise_and(threshold_pixels_i, unassigned_pixels)
+        remaining_pixels = np.bitwise_and(threshold_pixels_i, unassigned_pixels)
         segment = _find_region(remaining_pixels, already_segmented)
         # Apply segment
         if len(segment) > min_segment_size:
@@ -647,7 +647,7 @@ def crop_resistant_hash(
     )
     # Add filters
     image = image.filter(ImageFilter.GaussianBlur()).filter(ImageFilter.MedianFilter())
-    pixels = numpy.array(image).astype(numpy.float32)
+    pixels = np.array(image).astype(np.float32)
 
     segments = _find_all_segments(pixels, segment_threshold, min_segment_size)
 
