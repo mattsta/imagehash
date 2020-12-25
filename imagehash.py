@@ -201,7 +201,7 @@ def average_hash(image, hash_size=8, mean=numpy.mean):
     return ImageHash(diff)
 
 
-def phash(image, hash_size=8, highfreq_factor=4):
+def phash(image, hash_size=8, highfreq_factor=4, blur=True):
     """
     Perceptual Hash computation.
 
@@ -215,7 +215,8 @@ def phash(image, hash_size=8, highfreq_factor=4):
     import scipy.fftpack
 
     img_size = hash_size * highfreq_factor
-    image = image.filter(ImageFilter.BoxBlur(3))  # a 7x7 blur (radius 3)
+    if blur:
+        image = image.filter(ImageFilter.BoxBlur(3))  # a 7x7 blur (radius 3)
 
     image = image.convert("L").resize((img_size, img_size), Image.ANTIALIAS)
     pixels = numpy.asarray(image)
@@ -226,7 +227,7 @@ def phash(image, hash_size=8, highfreq_factor=4):
     return ImageHash(diff)
 
 
-def phash_simple(image, hash_size=8, highfreq_factor=4):
+def phash_simple(image, hash_size=8, highfreq_factor=4, blur=True):
     """
     Perceptual Hash computation.
 
@@ -237,7 +238,8 @@ def phash_simple(image, hash_size=8, highfreq_factor=4):
     import scipy.fftpack
 
     img_size = hash_size * highfreq_factor
-    image = image.filter(ImageFilter.BoxBlur(3))  # a 7x7 blur (radius 3)
+    if blur:
+        image = image.filter(ImageFilter.BoxBlur(3))  # a 7x7 blur (radius 3)
 
     image = image.convert("L").resize((img_size, img_size), Image.ANTIALIAS)
     pixels = numpy.asarray(image)
@@ -424,7 +426,7 @@ def colorhash(image, binbits=3):
     return ImageHash(numpy.asarray(bitarray).reshape((-1, binbits)))
 
 
-class ImageMultiHash(object):
+class ImageMultiHash:
     """
     This is an image hash containing a list of individual hashes for segments of the image.
     The matching logic is implemented as described in Efficient Cropping-Resistant Robust Image Hashing
@@ -439,6 +441,8 @@ class ImageMultiHash(object):
         return self.matches(other)
 
     def __ne__(self, other):
+        if other is None:
+            return False
         return not self.matches(other)
 
     def __sub__(self, other, hamming_cutoff=None, bit_error_rate=None):
@@ -455,7 +459,14 @@ class ImageMultiHash(object):
         return hash(tuple(hash(segment) for segment in self.segment_hashes))
 
     def __str__(self):
-        return ",".join(str(x) for x in self.segment_hashes)
+        # Serialization format is [HASHSIZE],[HASH][HASHSIZE],[HASH]...
+        totals = []
+        for x in self.segment_hashes:
+            h = str(x)
+            l = len(h)
+            totals.extend([str(l), ",", h])
+
+        return "".join(totals)
 
     def __repr__(self):
         return repr(self.segment_hashes)
@@ -606,7 +617,7 @@ def _find_all_segments(pixels, segment_threshold, min_segment_size):
 
 def crop_resistant_hash(
     image,
-    hash_func=None,
+    hash_func=phash,
     limit_segments=None,
     segment_threshold=128,
     min_segment_size=500,
@@ -629,9 +640,6 @@ def crop_resistant_hash(
     :param min_segment_size: Minimum number of pixels for a hashable segment
     :param segmentation_image_size: Size which the image is resized to before segmentation
     """
-    if hash_func is None:
-        hash_func = dhash
-
     orig_image = image.copy()
     # Convert to gray scale and resize
     image = image.convert("L").resize(
@@ -667,7 +675,10 @@ def crop_resistant_hash(
         max_x = (max(coord[1] for coord in segment) + 1) * scale_w
         # Compute robust hash for each bounding box
         bounding_box = orig_image.crop((min_x, min_y, max_x, max_y))
-        hashes.append(hash_func(bounding_box))
+        if hash_func is phash or hash_func is phash_simple:
+            hashes.append(hash_func(bounding_box, blur=False))
+        else:
+            hashes.append(hash_func(bounding_box))
         # Show bounding box
         # im_segment = image.copy()
         # for pix in segment:
