@@ -217,6 +217,8 @@ def phash(image, hash_size=8, highfreq_factor=4):
     import scipy.fftpack
 
     img_size = hash_size * highfreq_factor
+    image = image.filter(ImageFilter.BoxBlur(3)) # a 7x7 blur (radius 3)
+
     image = image.convert("L").resize((img_size, img_size), Image.ANTIALIAS)
     pixels = numpy.asarray(image)
     dct = scipy.fftpack.dct(scipy.fftpack.dct(pixels, axis=0), axis=1)
@@ -237,6 +239,8 @@ def phash_simple(image, hash_size=8, highfreq_factor=4):
     import scipy.fftpack
 
     img_size = hash_size * highfreq_factor
+    image = image.filter(ImageFilter.BoxBlur(3)) # a 7x7 blur (radius 3)
+
     image = image.convert("L").resize((img_size, img_size), Image.ANTIALIAS)
     pixels = numpy.asarray(image)
     dct = scipy.fftpack.dct(pixels)
