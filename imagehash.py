@@ -33,6 +33,7 @@ from __future__ import absolute_import, division, print_function
 
 from PIL import Image, ImageFilter
 import numpy
+import base64
 
 # import scipy.fftpack
 # import pywt
@@ -73,25 +74,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
 
-def _binary_array_to_hex(arr):
-    """
-    internal function to make a hex string out of a binary array.
-    """
-    bit_string = "".join(str(b) for b in 1 * arr.flatten())
-    width = int(numpy.ceil(len(bit_string) / 4))
-    return "{:0>{width}x}".format(int(bit_string, 2), width=width)
-
-
-class ImageHash(object):
+class ImageHash:
     """
     Hash encapsulation. Can be used for dictionary keys and comparisons.
     """
 
-    def __init__(self, binary_array):
+    def __init__(self, binary_array, restore=False):
         self.hash = binary_array
 
+        if restore:
+            self.hash = numpy.frombuffer(base64.b85decode(self.hash), dtype=numpy.uint8)
+
     def __str__(self):
-        return _binary_array_to_hex(self.hash.flatten())
+        return base64.b85encode(numpy.packbits(self.hash)).lower()
 
     def __repr__(self):
         return repr(self.hash)
