@@ -1,4 +1,4 @@
-from __future__ import (absolute_import, division, print_function)
+from __future__ import absolute_import, division, print_function
 
 import unittest
 
@@ -24,6 +24,5 @@ class Test(TestImageHash):
         self.check_hash_size(self.func, self.image)
 
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
