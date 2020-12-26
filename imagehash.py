@@ -308,7 +308,7 @@ def pdqhash(image):
     return ImageHash(pdqhash.compute(ai)[0], pdq_image_array=ai)
 
 
-def pdqhash_isometric(image):
+def pdqhash_isometric(image, save=None):
     """Return isometric dictionary for 'image' under pdqhash.
 
     This is an independent function because pdqhash.compute_dihedral() doesn't
@@ -321,7 +321,7 @@ def pdqhash_isometric(image):
     isometric call. By having an independent pdqhash_isometric() function, we avoid
     duplicate calcs when we want full isodict and don't need single result."""
     ai = np.array(image)
-    return ImageHash(pdq_image_array=ai).isometric()
+    return ImageHash(pdq_image_array=ai).isometric(save=save)
 
 
 def get_isometric_dct_transforms(dct: np.ndarray):
