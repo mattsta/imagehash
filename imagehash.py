@@ -97,7 +97,7 @@ class ImageHash:
         return self.precomputedHash
 
     def __str__(self):
-        return self.hex()
+        return self.hex().decode()
 
     def hex(self):
         # convert base hash to bytes, convert bytes to lowercase hex string
