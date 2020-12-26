@@ -95,7 +95,7 @@ class ImageHash:
         if self.precomputedHash is not None:
             return self.precomputedHash
 
-        self.precomputedHash = self.hashfn(self.dct)
+        self.precomputedHash = self.hashfn(self.dct).astype(int)
         return self.precomputedHash
 
     def __str__(self):
@@ -512,11 +512,15 @@ class ImageMultiHash:
 
         if restore:
             # restore format is: [HASH BYTE LEN],[HASH1][HASH2]...[HASHN]
-            finalHashes = []
-            body = str(hashes)
+            body = hashes
+
+            if isinstance(body, bytes):
+                body = body.decode()
+
             prefix, body = body.split(",", 1)
             prefix = int(prefix)
 
+            finalHashes = []
             while body:
                 finalHashes.append(ImageHash(body[:prefix], restore=restore))
                 body = body[prefix:]
