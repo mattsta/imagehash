@@ -89,12 +89,13 @@ class ImageHash:
         if other is None:
             raise TypeError("Other hash must not be None")
 
-        if self.hash.size != other.hash.size:
+        if self.hash.shape != other.hash.shape:
             raise TypeError(
                 "ImageHashes must be of the same shape",
                 self.hash.shape,
                 other.hash.shape,
             )
+
         return np.count_nonzero(self.hash - other.hash)
 
     def __eq__(self, other):
@@ -114,7 +115,7 @@ class ImageHash:
         return int.from_bytes(np.packbits(self.hash), "big")
 
     def __len__(self):
-        # Returns the bit length of the hash
+        # Returns the bit length of the hash (since each entry is 1 bit)
         return self.hash.size
 
     def isometric(self):
