@@ -64,7 +64,9 @@ class ImageHash:
             elif restore == "a85":
                 restoredBuffer = base64.a85decode(self.precomputedHash)
             else:
-                raise Exception("Unknown restore type requested? Try 'hex' or 'b85'")
+                raise Exception(
+                    "Unknown restore type requested? Try 'hex' or 'b85' or 'a85'"
+                )
 
             self.precomputedHash = np.unpackbits(
                 np.frombuffer(restoredBuffer, dtype=np.uint8)
@@ -101,10 +103,11 @@ class ImageHash:
         # convert base hash to bytes, convert bytes to lowercase hex string
         shape = self.hash.shape
         if shape[0] == shape[1]:
-            return bytes(np.packbits(self.hash)).hex()
+            prefix = ""
+        else:
+            # else, for non-square matrices, also save the shape in the serialization
+            prefix = shapeToPrefix(self.hash.shape)
 
-        # else, for non-square matrices, also save the shape in the serialization
-        prefix = shapeToPrefix(self.hash.shape)
         return prefix + bytes(np.packbits(self.hash)).hex()
 
     def save(self, by="b85"):
@@ -126,16 +129,15 @@ class ImageHash:
             # using A85 because A85 includes commas in its encoding)
             encode = base64.a85encode
         else:
-            raise Exception(
-                f"Valid 'by=' values are 'b85' and 'a85'! Was provided {by}"
-            )
+            raise Exception(f"Valid 'by=' values are 'b85' or 'a85'! Was given {by}")
 
         shape = self.hash.shape
         if shape[0] == shape[1]:
-            return encode(np.packbits(self.hash))
+            prefix = b""
+        else:
+            # else, for non-square matrices, also save the shape in the serialization
+            prefix = shapeToPrefix(self.hash.shape).encode()
 
-        # else, for non-square matrices, also save the shape in the serialization
-        prefix = shapeToPrefix(self.hash.shape).encode()
         return prefix + encode(np.packbits(self.hash))
 
     def __repr__(self):
