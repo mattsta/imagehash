@@ -101,14 +101,7 @@ class ImageHash:
 
     def hex(self):
         # convert base hash to bytes, convert bytes to lowercase hex string
-        shape = self.hash.shape
-        if shape[0] == shape[1]:
-            prefix = ""
-        else:
-            # else, for non-square matrices, also save the shape in the serialization
-            prefix = shapeToPrefix(self.hash.shape)
-
-        return prefix + bytes(np.packbits(self.hash)).hex()
+        return self.save(by="hex")
 
     def save(self, by="b85"):
         # Note: this ONLY works if each hash array element is a binary value.
@@ -128,11 +121,16 @@ class ImageHash:
             # back to the ImageHash constructor (prefixes can't be auto-detected when
             # using A85 because A85 includes commas in its encoding)
             encode = base64.a85encode
+        elif by == "hex":
+            encode = lambda x: bytes(x).hex().encode()
         else:
-            raise Exception(f"Valid 'by=' values are 'b85' or 'a85'! Was given {by}")
+            raise Exception(
+                f"Valid 'by=' values are 'hex' or 'b85' or 'a85'! Was given {by}"
+            )
 
         shape = self.hash.shape
-        if shape[0] == shape[1]:
+        # check for shape 1 because pdq results are a vector, not a matrix
+        if len(shape) == 1 or shape[0] == shape[1]:
             prefix = b""
         else:
             # else, for non-square matrices, also save the shape in the serialization
@@ -176,7 +174,7 @@ class ImageHash:
         # Returns the bit length of the hash (since each entry is 1 bit)
         return self.hash.size
 
-    def isometric(self):
+    def isometric(self, save=None):
         # if we have an image array, this is a pdqhash diahedral request
         if self.pdq_image_array is not None:
             import pdqhash
@@ -187,6 +185,12 @@ class ImageHash:
             # order (and original dict names) borrowed from perception:
             # https://github.com/thorn-oss/perception/blob/09086f368742e6135cd5eb8497c9f7a59eaa7f0b/perception/hashers/image/pdq.py#L23-L26
             names = ["r0", "r90", "r180", "r270", "fv", "fh", "r90fv", "r90fh"]
+            if save:
+                # if save requested, return serialized hashes
+                return dict(
+                    zip(names, [ImageHash(h).save(by=save) for h in hash_vectors])
+                )
+
             return dict(zip(names, [ImageHash(h) for h in hash_vectors]))
 
         # else, regular DCT isometric / diahedral transform
@@ -194,6 +198,12 @@ class ImageHash:
         assert (
             self.hashfn and self.dct is not None
         ), f"Can't compute isometric without a DCT hashfn and cached dct!"
+
+        if save:
+            return {
+                k: ImageHash(self.hashfn(dct).astype(int)).save(by=save)
+                for k, dct in get_isometric_dct_transforms(self.dct).items()
+            }
 
         return {
             k: ImageHash(self.hashfn(dct).astype(int))
