@@ -119,7 +119,7 @@ class ImageHash:
 
     def isometric(self):
         return {
-            k: self.hashfn(dct).astype(int)
+            k: ImageHash(self.hashfn(dct).astype(int))
             for k, dct in get_isometric_dct_transforms(self.dct).items()
         }
 
