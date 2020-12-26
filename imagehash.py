@@ -1,8 +1,13 @@
 from PIL import Image, ImageFilter
 import numpy as np
+import math
 import base64
 
 __version__ = "4.1.0"
+
+
+def shapeToPrefix(shape):
+    return f"R{shape[0]}C{shape[1]},"
 
 
 class ImageHash:
@@ -10,38 +15,66 @@ class ImageHash:
     Hash encapsulation. Can be used for dictionary keys and comparisons.
     """
 
-    def __init__(self, binary_array=None, dct=None, hashfn=None, restore=None):
+    def __init__(
+        self,
+        binary_array=None,
+        dct=None,
+        hashfn=None,
+        pdq_image_array=None,
+        restore=None,
+        withPrefix=False,  # for a85 restore decoding
+    ):
+        # Either inbound hashed matrix - OR - hex/b85 pickle to decode
         self.precomputedHash = binary_array
 
         # For creating DCT rotations, we need to store the DCT directly along with
         # how we transform the DCT to get the final hash value (hashfn(dct)):
         self.dct = dct
         self.hashfn = hashfn
+        self.pdq_image_array = pdq_image_array  # used for pdqhash dihedrals
 
-        if isinstance(self.hash, np.ndarray):
+        if isinstance(self.precomputedHash, np.ndarray):
             # convert boolean tensors into binary
             self.precomputedHash = self.precomputedHash.astype(int)
 
         if restore:
-            # we can restore via hex hashes or more compact b85 representations
+            rowscols = None
+
+            if isinstance(self.precomputedHash, bytes):
+                self.precomputedHash = self.precomputedHash.decode()
+
+            # if input is restore and begins with 'R', the input is prefixed
+            # with a Row/Column designation as: R[X]C[Y],[hash....]
+            # note: 'hex' and 'b85' encodings can auto-detect prefix usage because they
+            #       never use commas in their encoding. 'a85' uses commas, so you must also
+            #       explicitly restore using 'withPrefix' so we do a prefix check (or else any
+            #       random hash value to start with R and include a comma would break
+            #       this prefix decoding)
+            if (
+                restore != "a85" or (restore == "a85" and withPrefix)
+            ) and self.precomputedHash[0] == "R":
+                rc, self.precomputedHash = self.precomputedHash[1:].split(",", 1)
+                rowscols = tuple(int(x) for x in rc.split("C"))
+
+            # we can restore via hex hashes or more compact b85/a85 representations
             if restore == "hex":
-                self.precomputedHash = np.unpackbits(
-                    np.frombuffer(
-                        bytes.fromhex(self.precomputedHash),
-                        dtype=np.uint8,
-                    )
-                )
+                restoredBuffer = bytes.fromhex(self.precomputedHash)
             elif restore == "b85":
-                # else, restoring from base-85 save()
-                self.precomputedHash = np.unpackbits(
-                    np.frombuffer(base64.b85decode(self.hash), dtype=np.uint8)
-                )
+                restoredBuffer = base64.b85decode(self.precomputedHash)
+            elif restore == "a85":
+                restoredBuffer = base64.a85decode(self.precomputedHash)
             else:
                 raise Exception("Unknown restore type requested? Try 'hex' or 'b85'")
 
+            self.precomputedHash = np.unpackbits(
+                np.frombuffer(restoredBuffer, dtype=np.uint8)
+            )
+
             # restore original rows/cols
-            # (all hashes are square except for colorhash which is 14xN)
-            rowscols = int(np.sqrt(self.precomputedHash.size))
+            # (all hashes are square except for colorhash which is 14xN, but
+            #  non-square saved hashes have a shape prefix)
+            if not rowscols:
+                rowscols = (int(math.sqrt(self.precomputedHash.size)),) * 2
 
             # TODO: this is hacky and the ColorHash should actually have its own
             #       serialize/restore mechanism to avoid this force-to-square guessing.
@@ -50,11 +83,11 @@ class ImageHash:
             # 'excessBits' is when our hash or b85 needs more bytes for storage
             # than for the restore (we could also just make a serialization
             # format with the length prefixed to the pickle)
-            excessBits = self.precomputedHash.size - (rowscols ** 2)
+            excessBits = self.precomputedHash.size - (rowscols[0] * rowscols[1])
             if excessBits:
                 self.precomputedHash = self.precomputedHash[:-excessBits]
 
-            self.precomputedHash = self.hash.reshape(rowscols, rowscols)
+            self.precomputedHash = self.hash.reshape(rowscols)
 
     @property
     def hash(self):
@@ -70,9 +103,15 @@ class ImageHash:
 
     def hex(self):
         # convert base hash to bytes, convert bytes to lowercase hex string
-        return bytes(np.packbits(self.hash)).hex()
+        shape = self.hash.shape
+        if shape[0] == shape[1]:
+            return bytes(np.packbits(self.hash)).hex()
 
-    def save(self):
+        # else, for non-square matrices, also save the shape in the serialization
+        prefix = shapeToPrefix(self.hash.shape)
+        return prefix + bytes(np.packbits(self.hash)).hex()
+
+    def save(self, by="b85"):
         # Note: this ONLY works if each hash array element is a binary value.
         #       Does not save/restore any values *not* 0 or 1
         # Also note: python base85 doesn't contain any single quotes, double quotes,
@@ -80,7 +119,28 @@ class ImageHash:
         # ref: https://github.com/python/cpython/blob/ed48e9e2862971c2e9dcbd9a253477ec3def5e2e/Lib/base64.py#L416-L417
         # Also also note: b85 doesn't automatically shrink repeated characters like a85, so
         # each hash should remain the same length regardless of content.
-        return base64.b85encode(np.packbits(self.hash))
+        if by == "b85":
+            encode = base64.b85encode
+        elif by == "a85":
+            # A85 is more "dangerous" than b85 because A85 does include quotes
+            # and commas in its encoding, but A85 will also compress runs of
+            # multiple zeros down to just one character ('z').
+            # For restoring prefix-encoded A85 saves, you must pass 'withPrefix=True'
+            # back to the ImageHash constructor (prefixes can't be auto-detected when
+            # using A85 because A85 includes commas in its encoding)
+            encode = base64.a85encode
+        else:
+            raise Exception(
+                f"Valid 'by=' values are 'b85' and 'a85'! Was provided {by}"
+            )
+
+        shape = self.hash.shape
+        if shape[0] == shape[1]:
+            return encode(np.packbits(self.hash))
+
+        # else, for non-square matrices, also save the shape in the serialization
+        prefix = shapeToPrefix(self.hash.shape).encode()
+        return prefix + encode(np.packbits(self.hash))
 
     def __repr__(self):
         return repr(self.hash)
@@ -119,6 +179,24 @@ class ImageHash:
         return self.hash.size
 
     def isometric(self):
+        # if we have an image array, this is a pdqhash diahedral request
+        if self.pdq_image_array is not None:
+            import pdqhash
+
+            hash_vectors, _ = pdqhash.compute_dihedral(self.pdq_image_array)
+
+            # normalize the pdqhash order to the regular order dict names we use.
+            # order (and original dict names) borrowed from perception:
+            # https://github.com/thorn-oss/perception/blob/09086f368742e6135cd5eb8497c9f7a59eaa7f0b/perception/hashers/image/pdq.py#L23-L26
+            names = ["r0", "r90", "r180", "r270", "fv", "fh", "r90fv", "r90fh"]
+            return dict(zip(names, [ImageHash(h) for h in hash_vectors]))
+
+        # else, regular DCT isometric / diahedral transform
+        # (note: only works for DCT-based hashes)
+        assert (
+            self.hashfn and self.dct is not None
+        ), f"Can't compute isometric without a DCT hashfn and cached dct!"
+
         return {
             k: ImageHash(self.hashfn(dct).astype(int))
             for k, dct in get_isometric_dct_transforms(self.dct).items()
@@ -148,7 +226,9 @@ def average_hash(image, hash_size=8, mean=np.mean):
 
     # create string of bits
     diff = pixels > avg
+
     # make a hash
+    # (don't need any isometric ability here since average hash is orientation agnostic)
     return ImageHash(diff)
 
 
@@ -210,6 +290,30 @@ def phash_simple(image, hash_size=8, highfreq_factor=4, blur=True):
     # diff = dctlowfreq > avg
 
     return ImageHash(dct=dctlowfreq, hashfn=lambda x: x > x.mean())
+
+
+def pdqhash(image):
+    import pdqhash
+
+    # we also save the image bytes in ImageHash to allow .isometric() calls
+    ai = np.array(image)
+    return ImageHash(pdqhash.compute(ai)[0], pdq_image_array=ai)
+
+
+def pdqhash_isometric(image):
+    """Return isometric dictionary for 'image' under pdqhash.
+
+    This is an independent function because pdqhash.compute_dihedral() doesn't
+    re-use the result from regular pdqhash.compute(), so if we want the isometric
+    pdqhash, we should only call isometric instead of calling for regular orientation
+    hash computing isometric hash from it.
+
+    You can also get the same result with pdqhash(image).isometric(), but it would
+    calculate the pdqhash for 0-orientation image, then re-compute it for the
+    isometric call. By having an independent pdqhash_isometric() function, we avoid
+    duplicate calcs when we want full isodict and don't need single result."""
+    ai = np.array(image)
+    return ImageHash(pdq_image_array=ai).isometric()
 
 
 def get_isometric_dct_transforms(dct: np.ndarray):
