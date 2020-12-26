@@ -20,18 +20,14 @@ class ImageHash:
 
         if isinstance(self.hash, np.ndarray):
             # convert boolean tensors into binary
-            self.precomputedHash = self.hash.astype(int)
+            self.precomputedHash = self.precomputedHash.astype(int)
 
         if restore:
             # we can restore via hex hashes or more compact b85 representations
             if restore == "hex":
-                asint = int(self.hash, 16)
-                bits = asint.bit_length()
-
-                # Note: no fractional bytes here, so we don't need to do the (+ 7) ceiling trick
                 self.precomputedHash = np.unpackbits(
                     np.frombuffer(
-                        asint.to_bytes(bits // 8, "big"),
+                        bytes.fromhex(self.precomputedHash),
                         dtype=np.uint8,
                     )
                 )
@@ -43,27 +39,47 @@ class ImageHash:
             else:
                 raise Exception("Unknown restore type requested? Try 'hex' or 'b85'")
 
-            # restore original rows/cols (all hashes are square)
+            # restore original rows/cols
+            # (all hashes are square except for colorhash which is 14xN)
             rowscols = int(np.sqrt(self.precomputedHash.size))
+
+            # TODO: this is hacky and the ColorHash should actually have its own
+            #       serialize/restore mechanism to avoid this force-to-square guessing.
+            # extra math for restoring non-power-of-2 saved hashes, but still
+            # need to restore as squares.
+            # 'excessBits' is when our hash or b85 needs more bytes for storage
+            # than for the restore (we could also just make a serialization
+            # format with the length prefixed to the pickle)
+            excessBits = self.precomputedHash.size - (rowscols ** 2)
+            if excessBits:
+                self.precomputedHash = self.precomputedHash[:-excessBits]
+
             self.precomputedHash = self.hash.reshape(rowscols, rowscols)
 
     @property
     def hash(self):
+        """ Perform hash using requested exclusion criteria (or returned cached result) """
         if self.precomputedHash is not None:
             return self.precomputedHash
 
-        """ Perform the DCT hash using requested exclusion criteria """
         self.precomputedHash = self.hashfn(self.dct)
         return self.precomputedHash
 
     def __str__(self):
-        # convert base hash to bytes, convert bytes to integer,
-        # convert integer to lower case hex string:
-        return f"{int.from_bytes(np.packbits(self.precomputedHash), 'big'):x}"
+        return self.hex()
+
+    def hex(self):
+        # convert base hash to bytes, convert bytes to lowercase hex string
+        return bytes(np.packbits(self.hash)).hex()
 
     def save(self):
         # Note: this ONLY works if each hash array element is a binary value.
         #       Does not save/restore any values *not* 0 or 1
+        # Also note: python base85 doesn't contain any single quotes, double quotes,
+        # commas, or backslashes, so it is safe for CSV and in-string usage.
+        # ref: https://github.com/python/cpython/blob/ed48e9e2862971c2e9dcbd9a253477ec3def5e2e/Lib/base64.py#L416-L417
+        # Also also note: b85 doesn't automatically shrink repeated characters like a85, so
+        # each hash should remain the same length regardless of content.
         return base64.b85encode(np.packbits(self.hash))
 
     def __repr__(self):
@@ -317,6 +333,8 @@ def colorhash(image, binbits=3):
     """
     Color Hash computation.
 
+    Color Hash always has 14 rows and each row has 'binbits' columns.
+
     Computes fractions of image in intensity, hue and saturation bins:
 
     * the first binbits encode the black fraction of the image
@@ -330,18 +348,22 @@ def colorhash(image, binbits=3):
     # bin in hsv space:
     intensity = np.asarray(image.convert("L")).flatten()
     h, s, v = [np.asarray(v).flatten() for v in image.convert("HSV").split()]
+
     # black bin
     mask_black = intensity < 256 // 8
     frac_black = mask_black.mean()
+
     # gray bin (low saturation, but not black)
     mask_gray = s < 256 // 3
     frac_gray = np.logical_and(~mask_black, mask_gray).mean()
+
     # two color bins (medium and high saturation, not in the two above)
     mask_colors = np.logical_and(~mask_black, ~mask_gray)
     mask_faint_colors = np.logical_and(mask_colors, s < 256 * 2 // 3)
     mask_bright_colors = np.logical_and(mask_colors, s > 256 * 2 // 3)
 
     c = max(1, mask_colors.sum())
+
     # in the color bins, make sub-bins by hue
     hue_bins = np.linspace(0, 255, 6 + 1)
     if mask_faint_colors.any():
@@ -360,15 +382,17 @@ def colorhash(image, binbits=3):
         min(maxvalue - 1, int(frac_black * maxvalue)),
         min(maxvalue - 1, int(frac_gray * maxvalue)),
     ]
+
     for counts in list(h_faint_counts) + list(h_bright_counts):
         values.append(min(maxvalue - 1, int(counts * maxvalue * 1.0 / c)))
-    # print(values)
+
     bitarray = []
     for v in values:
         bitarray += [
             v // (2 ** (binbits - i - 1)) % 2 ** (binbits - i) > 0
             for i in range(binbits)
         ]
+
     return ImageHash(np.asarray(bitarray).reshape((-1, binbits)))
 
 
@@ -378,18 +402,33 @@ class ImageMultiHash:
     The matching logic is implemented as described in Efficient Cropping-Resistant Robust Image Hashing
     """
 
-    def __init__(self, hashes):
+    def __init__(self, hashes, restore=None):
         self.segment_hashes = hashes
+
+        if restore:
+            # restore format is: [HASH BYTE LEN],[HASH1][HASH2]...[HASHN]
+            finalHashes = []
+            body = str(hashes)
+            prefix, body = body.split(",", 1)
+            prefix = int(prefix)
+
+            while body:
+                finalHashes.append(ImageHash(body[:prefix], restore=restore))
+                body = body[prefix:]
+
+            self.segment_hashes = finalHashes
 
     def __eq__(self, other):
         if other is None:
             return False
+
         return self.matches(other)
 
     def __ne__(self, other):
         if other is None:
             return False
-        return not self.matches(other)
+
+        return not self == other
 
     def __sub__(self, other, hamming_cutoff=None, bit_error_rate=None):
         matches, sum_distance = self.hash_diff(other, hamming_cutoff, bit_error_rate)
@@ -405,12 +444,29 @@ class ImageMultiHash:
         return hash(tuple(hash(segment) for segment in self.segment_hashes))
 
     def __str__(self):
-        # Serialization format is [HASHSIZE],[HASH][HASHSIZE],[HASH]...
+        return self.hex()
+
+    def hex(self):
+        # Serialization format is [HASH BYTE LENGTH],[HASH][HASH][HASH]...[HASH]
         totals = []
+        hashLen = str(len(str(self.segment_hashes[0]))) + ","
+        totals.append(hashLen)
+
         for x in self.segment_hashes:
             h = str(x)
-            l = len(h)
-            totals.extend([str(l), ",", h])
+            totals.append(h)
+
+        return "".join(totals)
+
+    def save(self):
+        # Serialization format is [HASH BYTE LENGTH],[HASH][HASH][HASH]...[HASH]
+        totals = []
+        hashLen = str(len(self.segment_hashes[0].save().decode())) + ","
+        totals.append(hashLen)
+
+        for x in self.segment_hashes:
+            h = x.save().decode()
+            totals.append(h)
 
         return "".join(totals)
 
@@ -439,8 +495,10 @@ class ImageMultiHash:
                 segment_hash - other_segment_hash
                 for other_segment_hash in other_hash.segment_hashes
             )
+
             if lowest_distance > hamming_cutoff:
                 continue
+
             distances.append(lowest_distance)
         return len(distances), sum(distances)
 
