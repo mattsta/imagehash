@@ -568,6 +568,7 @@ def crop_resistant_hash(
     segment_threshold=128,
     min_segment_size=500,
     segmentation_image_size=300,
+    **hashkwargs,
 ):
     """
     Creates a CropResistantHash object, by the algorithm described in the paper "Efficient Cropping-Resistant Robust
@@ -622,9 +623,11 @@ def crop_resistant_hash(
         # Compute robust hash for each bounding box
         bounding_box = orig_image.crop((min_x, min_y, max_x, max_y))
         if hash_func is phash or hash_func is phash_simple:
-            hashes.append(hash_func(bounding_box, blur=False))
+            # if using phash, don't re-blur the segment because we already blurred
+            # the entire image above
+            hashes.append(hash_func(bounding_box, blur=False, **hashkwargs))
         else:
-            hashes.append(hash_func(bounding_box))
+            hashes.append(hash_func(bounding_box, **hashkwargs))
         # Show bounding box
         # im_segment = image.copy()
         # for pix in segment:
