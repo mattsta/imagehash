@@ -159,7 +159,7 @@ class ImageHash:
         return np.count_nonzero(self.hash - other.hash)
 
     def __eq__(self, other):
-        if other is None:
+        if other is None or not isinstance(other, ImageHash):
             return False
 
         return np.array_equal(self.hash, other.hash)
@@ -528,7 +528,7 @@ class ImageMultiHash:
             self.segment_hashes = finalHashes
 
     def __eq__(self, other):
-        if other is None:
+        if other is None or not isinstance(other, ImageMultiHash):
             return False
 
         return self.matches(other)
