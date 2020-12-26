@@ -76,13 +76,9 @@ class ImageHash:
             if not rowscols:
                 rowscols = (int(math.sqrt(self.precomputedHash.size)),) * 2
 
-            # TODO: this is hacky and the ColorHash should actually have its own
-            #       serialize/restore mechanism to avoid this force-to-square guessing.
-            # extra math for restoring non-power-of-2 saved hashes, but still
-            # need to restore as squares.
-            # 'excessBits' is when our hash or b85 needs more bytes for storage
-            # than for the restore (we could also just make a serialization
-            # format with the length prefixed to the pickle)
+            # 'excessBits' is needed because our saved state is saved in units of
+            # 1 to 5 bytes, but we may need to restore fewer bits than we serialized
+            # out.
             excessBits = self.precomputedHash.size - (rowscols[0] * rowscols[1])
             if excessBits:
                 self.precomputedHash = self.precomputedHash[:-excessBits]
