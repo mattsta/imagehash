@@ -35,7 +35,7 @@ class ImageHash:
 
         if isinstance(self.precomputedHash, np.ndarray):
             # convert boolean tensors into binary
-            self.precomputedHash = self.precomputedHash.astype(int)
+            self.precomputedHash = self.precomputedHash.astype(np.uint8)
 
         if restore:
             rowscols = None
@@ -93,7 +93,7 @@ class ImageHash:
         if self.precomputedHash is not None:
             return self.precomputedHash
 
-        self.precomputedHash = self.hashfn(self.dct).astype(int)
+        self.precomputedHash = self.hashfn(self.dct).astype(np.uint8)
         return self.precomputedHash
 
     def __str__(self):
@@ -201,12 +201,12 @@ class ImageHash:
 
         if save:
             return {
-                k: ImageHash(self.hashfn(dct).astype(int)).save(by=save)
+                k: ImageHash(self.hashfn(dct).astype(np.uint8)).save(by=save)
                 for k, dct in get_isometric_dct_transforms(self.dct).items()
             }
 
         return {
-            k: ImageHash(self.hashfn(dct).astype(int))
+            k: ImageHash(self.hashfn(dct).astype(np.uint8))
             for k, dct in get_isometric_dct_transforms(self.dct).items()
         }
 
