@@ -175,7 +175,7 @@ class ImageHash:
         return self.hash.size
 
     def isometric(self, save=None):
-        # if we have an image array, this is a pdqhash diahedral request
+        # if we have an image array, this is a pdqhash dihedral request
         if self.pdq_image_array is not None:
             import pdqhash
 
@@ -193,7 +193,7 @@ class ImageHash:
 
             return dict(zip(names, [ImageHash(h) for h in hash_vectors]))
 
-        # else, regular DCT isometric / diahedral transform
+        # else, regular DCT isometric / dihedral transform
         # (note: only works for DCT-based hashes)
         assert (
             self.hashfn and self.dct is not None
