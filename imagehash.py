@@ -40,21 +40,40 @@ class ImageHash:
         if restore:
             rowscols = None
 
-            if isinstance(self.precomputedHash, bytes):
-                self.precomputedHash = self.precomputedHash.decode()
+            # if type is NOT bytes, but we are given serialized bytes, decode back to string for manipulation below.
+            if restore != "bytes":
+                if isinstance(self.precomputedHash, bytes):
+                    self.precomputedHash = self.precomputedHash.decode()
 
-            # if input is restore and begins with 'R', the input is prefixed
-            # with a Row/Column designation as: R[X]C[Y],[hash....]
-            # note: 'hex' and 'b85' encodings can auto-detect prefix usage because they
-            #       never use commas in their encoding. 'a85' uses commas, so you must also
-            #       explicitly restore using 'withPrefix' so we do a prefix check (or else any
-            #       random hash value to start with R and include a comma would break
-            #       this prefix decoding)
-            if (
-                restore != "a85" or (restore == "a85" and withPrefix)
-            ) and self.precomputedHash[0] == "R":
-                rc, self.precomputedHash = self.precomputedHash[1:].split(",", 1)
-                rowscols = tuple(int(x) for x in rc.split("C"))
+                # if input is restore and begins with 'R', the input is prefixed
+                # with a Row/Column designation as: R[X]C[Y],[hash....]
+                # note: 'hex' and 'b85' encodings can auto-detect prefix usage because they
+                #       never use commas in their encoding. 'a85' uses commas, so you must also
+                #       explicitly restore using 'withPrefix' so we do a prefix check (or else any
+                #       random hash value to start with R and include a comma would break
+                #       this prefix decoding)
+                if (
+                    restore != "a85" or ((restore == "a85") and withPrefix)
+                ) and self.precomputedHash[0] == "R":
+                    rc, self.precomputedHash = self.precomputedHash[1:].split(",", 1)
+                    rowscols = tuple(int(x) for x in rc.split("C"))
+            else:
+                # else, type IS bytes, so we need to a bytes split check
+                # this is somewhat in reverse of the above because we want to check for
+                # the comma split existing first, convert the split to string, then check.
+                # ALSO NOTE: unlike the string-encoded types, *any* binary string will
+                #            restore itself into a matrix. There's no checking whether
+                #            the binary is of any specific size or dimensions, so all
+                #            binary strings are valid boolean matrix encodings.
+                if withPrefix:
+                    rc, self.precomputedHash = self.precomputedHash.split(b",", 1)
+
+                    # convert discovered split back to string
+                    rc = rc.decode()
+
+                    # strip off the leading 'R' here as above, just backwards order
+                    if rc[0] == "R":
+                        rowscols = tuple(int(x) for x in rc[1:].split("C"))
 
             # we can restore via hex hashes or more compact b85/a85 representations
             if restore == "hex":
@@ -63,6 +82,8 @@ class ImageHash:
                 restoredBuffer = base64.b85decode(self.precomputedHash)
             elif restore == "a85":
                 restoredBuffer = base64.a85decode(self.precomputedHash)
+            elif restore == "bytes":
+                restoredBuffer = self.precomputedHash
             else:
                 raise Exception(
                     "Unknown restore type requested? Try 'hex' or 'b85' or 'a85'"
@@ -123,6 +144,8 @@ class ImageHash:
             encode = base64.a85encode
         elif by == "hex":
             encode = lambda x: bytes(x).hex().encode()
+        elif by == "bytes":
+            encode = lambda x: bytes(x)
         else:
             raise Exception(
                 f"Valid 'by=' values are 'hex' or 'b85' or 'a85'! Was given {by}"
